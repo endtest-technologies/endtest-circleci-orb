@@ -1,0 +1,16 @@
+description: Run Endtest tests from CircleCI.
+
+usage:
+  version: 2.1
+
+  orbs:
+    endtest: endtest/endtest@1.0.0
+
+  workflows:
+    endtest-tests:
+      jobs:
+        - endtest/run:
+            app_id: ENDTEST_APP_ID
+            app_code: ENDTEST_APP_CODE
+            api_request: "YOUR_ENDTEST_API_REQUEST"
+            number_of_loops: 10

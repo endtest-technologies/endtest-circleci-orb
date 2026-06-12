@@ -1,0 +1,27 @@
+description: Run Endtest tests from a CircleCI workflow.
+
+docker:
+  - image: cimg/base:stable
+
+parameters:
+  app_id:
+    type: env_var_name
+    default: ENDTEST_APP_ID
+
+  app_code:
+    type: env_var_name
+    default: ENDTEST_APP_CODE
+
+  api_request:
+    type: string
+
+  number_of_loops:
+    type: integer
+    default: 10
+
+steps:
+  - run-tests:
+      app_id: << parameters.app_id >>
+      app_code: << parameters.app_code >>
+      api_request: << parameters.api_request >>
+      number_of_loops: << parameters.number_of_loops >>

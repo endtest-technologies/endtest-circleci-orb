@@ -1,0 +1,9 @@
+version: 2.1
+
+description: >
+  Run Endtest end-to-end tests from CircleCI, wait for results,
+  and fail the pipeline when tests fail.
+
+display:
+  home_url: "https://endtest.io"
+  source_url: "https://github.com/endtest-technologies/endtest-circleci-orb"

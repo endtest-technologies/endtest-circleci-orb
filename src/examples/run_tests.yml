@@ -1,10 +1,10 @@
-description: Run Endtest tests from CircleCI.
+description: Run Endtest tests and fail the workflow when the execution fails.
 
 usage:
   version: 2.1
 
   orbs:
-    endtest: endtest/endtest@1.0.0
+    endtest: endtest/endtest@0.0.1
 
   workflows:
     endtest-tests:
@@ -12,5 +12,5 @@ usage:
         - endtest/run:
             app_id: ENDTEST_APP_ID
             app_code: ENDTEST_APP_CODE
-            api_request: "YOUR_ENDTEST_API_REQUEST"
+            api_request: ENDTEST_API_REQUEST
             number_of_loops: 10

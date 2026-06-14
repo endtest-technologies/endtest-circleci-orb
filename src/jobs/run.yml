@@ -7,19 +7,32 @@ parameters:
   app_id:
     type: env_var_name
     default: ENDTEST_APP_ID
+    description: Environment variable containing the Endtest App ID.
 
   app_code:
     type: env_var_name
     default: ENDTEST_APP_CODE
+    description: Environment variable containing the Endtest App Code.
 
   api_request:
-    type: string
+    type: env_var_name
+    default: ENDTEST_API_REQUEST
+    description: Environment variable containing the Endtest API request.
 
   number_of_loops:
     type: integer
     default: 10
+    description: Maximum number of result checks.
 
 steps:
+  - run:
+      name: Install Endtest dependencies
+      command: |
+        if ! command -v jq >/dev/null 2>&1; then
+          sudo apt-get update
+          sudo apt-get install -y jq
+        fi
+
   - run-tests:
       app_id: << parameters.app_id >>
       app_code: << parameters.app_code >>

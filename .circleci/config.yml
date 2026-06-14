@@ -1,7 +1,7 @@
 version: 2.1
 
 orbs:
-  endtest: endtest/endtest@dev:first
+  endtest: endtest/endtest@dev:api-v1
 
 workflows:
   test-endtest-orb:

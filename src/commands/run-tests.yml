@@ -4,57 +4,173 @@ parameters:
   app_id:
     type: env_var_name
     default: ENDTEST_APP_ID
-    description: The environment variable containing your Endtest App ID.
+    description: Environment variable containing the Endtest App ID.
 
   app_code:
     type: env_var_name
     default: ENDTEST_APP_CODE
-    description: The environment variable containing your Endtest App Code.
+    description: Environment variable containing the Endtest App Code.
 
   api_request:
-    type: string
-    description: The Endtest API request used to start the test execution.
+    type: env_var_name
+    default: ENDTEST_API_REQUEST
+    description: Environment variable containing the Endtest API request.
 
   number_of_loops:
     type: integer
     default: 10
-    description: Number of polling attempts. Each attempt waits 30 seconds.
+    description: Maximum number of result checks, performed once every 30 seconds.
 
 steps:
   - run:
       name: Run Endtest tests
+      environment:
+        ENDTEST_APP_ID_ENV: << parameters.app_id >>
+        ENDTEST_APP_CODE_ENV: << parameters.app_code >>
+        ENDTEST_API_REQUEST_ENV: << parameters.api_request >>
+        ENDTEST_NUMBER_OF_LOOPS: << parameters.number_of_loops >>
       command: |
         set -euo pipefail
 
-        APP_ID="${!ENDTEST_APP_ID_ENV}"
-        APP_CODE="${!ENDTEST_APP_CODE_ENV}"
+        APP_ID="$(printenv "${ENDTEST_APP_ID_ENV}" || true)"
+        APP_CODE="$(printenv "${ENDTEST_APP_CODE_ENV}" || true)"
+        API_REQUEST="$(printenv "${ENDTEST_API_REQUEST_ENV}" || true)"
 
         if [ -z "${APP_ID}" ]; then
-          echo "Missing Endtest App ID. Please set ${ENDTEST_APP_ID_ENV} in CircleCI."
+          echo "Missing Endtest App ID. Set ${ENDTEST_APP_ID_ENV} in CircleCI."
           exit 1
         fi
 
         if [ -z "${APP_CODE}" ]; then
-          echo "Missing Endtest App Code. Please set ${ENDTEST_APP_CODE_ENV} in CircleCI."
+          echo "Missing Endtest App Code. Set ${ENDTEST_APP_CODE_ENV} in CircleCI."
           exit 1
         fi
 
-        if [ -z "${ENDTEST_API_REQUEST}" ]; then
-          echo "Missing Endtest API request."
+        if [ -z "${API_REQUEST}" ]; then
+          echo "Missing Endtest API request. Set ${ENDTEST_API_REQUEST_ENV} in CircleCI."
+          exit 1
+        fi
+
+        if ! command -v curl >/dev/null 2>&1; then
+          echo "curl is required."
+          exit 1
+        fi
+
+        if ! command -v jq >/dev/null 2>&1; then
+          echo "jq is required."
           exit 1
         fi
 
         echo "Starting Endtest execution..."
-        echo "API request: ${ENDTEST_API_REQUEST}"
-        echo "Polling loops: ${ENDTEST_NUMBER_OF_LOOPS}"
 
-        # Temporary first version.
-        # This validates and publishes the orb structure.
-        # We will replace this with the real Endtest API call and polling logic next.
+        hash="$(curl \
+          --fail \
+          --silent \
+          --show-error \
+          --location \
+          --header "Accept: */*" \
+          "${API_REQUEST}")"
 
-        exit 0
-      environment:
-        ENDTEST_APP_ID_ENV: << parameters.app_id >>
-        ENDTEST_APP_CODE_ENV: << parameters.app_code >>
-        ENDTEST_API_REQUEST: << parameters.api_request >>
-        ENDTEST_NUMBER_OF_LOOPS: << parameters.number_of_loops >>
+        hash="$(printf '%s' "${hash}" | tr -d '\r\n')"
+
+        if [ -z "${hash}" ]; then
+          echo "Endtest did not return an execution hash."
+          exit 1
+        fi
+
+        echo "Execution hash: ${hash}"
+
+        loop=1
+
+        while [ "${loop}" -le "${ENDTEST_NUMBER_OF_LOOPS}" ]; do
+          echo "Waiting 30 seconds before result check ${loop}/${ENDTEST_NUMBER_OF_LOOPS}..."
+          sleep 30
+
+          result="$(curl \
+            --fail \
+            --silent \
+            --show-error \
+            --get \
+            --header "Accept: */*" \
+            --data-urlencode "action=getResults" \
+            --data-urlencode "appId=${APP_ID}" \
+            --data-urlencode "appCode=${APP_CODE}" \
+            --data-urlencode "hash=${hash}" \
+            --data-urlencode "format=json" \
+            "https://app.endtest.io/api.php")"
+
+          case "${result}" in
+            "Test is still running.")
+              echo "The Endtest execution is still running."
+              ;;
+
+            "Processing video recording.")
+              echo "Endtest is processing the video recording."
+              ;;
+
+            "Stopping.")
+              echo "The Endtest execution is stopping."
+              ;;
+
+            "Erred.")
+              echo "The Endtest execution encountered an error."
+              exit 1
+              ;;
+
+            "")
+              echo "Endtest returned an empty response. Trying again."
+              ;;
+
+            *)
+              if ! printf '%s' "${result}" | jq -e . >/dev/null 2>&1; then
+                echo "Endtest returned an unexpected response:"
+                echo "${result}"
+                exit 1
+              fi
+
+              test_suite_name="$(printf '%s' "${result}" | jq -r '.test_suite_name // "Unknown"')"
+              configuration="$(printf '%s' "${result}" | jq -r '.configuration // "Unknown"')"
+              test_cases="$(printf '%s' "${result}" | jq -r '.test_cases // 0')"
+              passed="$(printf '%s' "${result}" | jq -r '.passed // 0')"
+              failed="$(printf '%s' "${result}" | jq -r '.failed // 0')"
+              errors="$(printf '%s' "${result}" | jq -r '.errors // 0')"
+              start_time="$(printf '%s' "${result}" | jq -r '.start_time // ""')"
+              end_time="$(printf '%s' "${result}" | jq -r '.end_time // ""')"
+
+              results_url="https://app.endtest.io/results?hash=${hash}"
+
+              echo "Test Suite: ${test_suite_name}"
+              echo "Configuration: ${configuration}"
+              echo "Test Cases: ${test_cases}"
+              echo "Passed: ${passed}"
+              echo "Failed: ${failed}"
+              echo "Errors: ${errors}"
+              echo "Start Time: ${start_time}"
+              echo "End Time: ${end_time}"
+              echo "Results: ${results_url}"
+
+              if ! [[ "${failed}" =~ ^[0-9]+$ ]]; then
+                echo "Endtest returned an invalid failed count."
+                exit 1
+              fi
+
+              if ! [[ "${errors}" =~ ^[0-9]+$ ]]; then
+                echo "Endtest returned an invalid error count."
+                exit 1
+              fi
+
+              if [ "${failed}" -gt 0 ] || [ "${errors}" -gt 0 ]; then
+                echo "Endtest reported failed assertions or execution errors."
+                exit 1
+              fi
+
+              echo "Endtest execution passed."
+              exit 0
+              ;;
+          esac
+
+          loop=$((loop + 1))
+        done
+
+        echo "The Endtest execution did not finish within the configured polling period."
+        exit 1

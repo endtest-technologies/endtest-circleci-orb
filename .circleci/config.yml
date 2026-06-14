@@ -1,0 +1,13 @@
+version: 2.1
+
+orbs:
+  endtest: endtest/endtest@dev:first
+
+workflows:
+  test-endtest-orb:
+    jobs:
+      - endtest/run:
+          app_id: ENDTEST_APP_ID
+          app_code: ENDTEST_APP_CODE
+          api_request: ENDTEST_API_REQUEST
+          number_of_loops: 10

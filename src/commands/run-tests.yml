@@ -1,4 +1,4 @@
-description: Run Endtest tests and wait for the results.
+description: Run one or more Endtest test executions and wait for the results.
 
 parameters:
   app_id:
@@ -63,7 +63,7 @@ steps:
 
         echo "Starting Endtest execution..."
 
-        hash="$(curl \
+        hashes="$(curl \
           --fail \
           --silent \
           --show-error \
@@ -71,14 +71,31 @@ steps:
           --header "Accept: */*" \
           "${API_REQUEST}")"
 
-        hash="$(printf '%s' "${hash}" | tr -d '\r\n')"
+        hashes="$(printf '%s' "${hashes}" | tr -d '[:space:]')"
 
-        if [ -z "${hash}" ]; then
+        if [ -z "${hashes}" ]; then
           echo "Endtest did not return an execution hash."
           exit 1
         fi
 
-        echo "Execution hash: ${hash}"
+        IFS=',' read -r -a execution_hashes < <(printf '%s\n' "${hashes}")
+        expected_executions="${#execution_hashes[@]}"
+
+        for execution_hash in "${execution_hashes[@]}"; do
+          if [ -z "${execution_hash}" ] || ! [[ "${execution_hash}" =~ ^[A-Za-z0-9]+$ ]]; then
+            echo "Endtest returned an invalid execution hash response."
+            exit 1
+          fi
+        done
+
+        echo "Endtest started ${expected_executions} execution(s)."
+
+        execution_number=1
+
+        for execution_hash in "${execution_hashes[@]}"; do
+          echo "Execution ${execution_number} hash: ${execution_hash}"
+          execution_number=$((execution_number + 1))
+        done
 
         loop=1
 
@@ -95,8 +112,8 @@ steps:
             --data-urlencode "action=getResults" \
             --data-urlencode "appId=${APP_ID}" \
             --data-urlencode "appCode=${APP_CODE}" \
-            --data-urlencode "hash=${hash}" \
-            --data-urlencode "format=json" \
+            --data-urlencode "hash=${hashes}" \
+            --data-urlencode "format=json-light" \
             "https://app.endtest.io/api.php")"
 
           case "${result}" in
@@ -128,43 +145,104 @@ steps:
                 exit 1
               fi
 
-              test_suite_name="$(printf '%s' "${result}" | jq -r '.test_suite_name // "Unknown"')"
-              configuration="$(printf '%s' "${result}" | jq -r '.configuration // "Unknown"')"
-              test_cases="$(printf '%s' "${result}" | jq -r '.test_cases // 0')"
-              passed="$(printf '%s' "${result}" | jq -r '.passed // 0')"
-              failed="$(printf '%s' "${result}" | jq -r '.failed // 0')"
-              errors="$(printf '%s' "${result}" | jq -r '.errors // 0')"
-              start_time="$(printf '%s' "${result}" | jq -r '.start_time // ""')"
-              end_time="$(printf '%s' "${result}" | jq -r '.end_time // ""')"
-
-              results_url="https://app.endtest.io/results?hash=${hash}"
-
-              echo "Test Suite: ${test_suite_name}"
-              echo "Configuration: ${configuration}"
-              echo "Test Cases: ${test_cases}"
-              echo "Passed: ${passed}"
-              echo "Failed: ${failed}"
-              echo "Errors: ${errors}"
-              echo "Start Time: ${start_time}"
-              echo "End Time: ${end_time}"
-              echo "Results: ${results_url}"
-
-              if ! [[ "${failed}" =~ ^[0-9]+$ ]]; then
-                echo "Endtest returned an invalid failed count."
+              if ! normalized_result="$(printf '%s' "${result}" | jq -c '
+                if type == "array" then
+                  .
+                elif type == "object" then
+                  [.]
+                else
+                  error("Unsupported results structure")
+                end
+              ')"; then
+                echo "Endtest returned valid JSON in an unsupported format."
                 exit 1
               fi
 
-              if ! [[ "${errors}" =~ ^[0-9]+$ ]]; then
-                echo "Endtest returned an invalid error count."
+              if ! printf '%s' "${normalized_result}" | jq -e '
+                type == "array" and all(.[]; type == "object")
+              ' >/dev/null 2>&1; then
+                echo "Endtest returned an invalid results structure."
                 exit 1
               fi
 
-              if [ "${failed}" -gt 0 ] || [ "${errors}" -gt 0 ]; then
+              completed_executions="$(printf '%s' "${normalized_result}" | jq 'length')"
+
+              if [ "${completed_executions}" -lt "${expected_executions}" ]; then
+                echo "Received ${completed_executions}/${expected_executions} completed execution result(s)."
+                echo "Waiting for the remaining executions."
+                loop=$((loop + 1))
+                continue
+              fi
+
+              if [ "${completed_executions}" -gt "${expected_executions}" ]; then
+                echo "Endtest returned more results than execution hashes."
+                exit 1
+              fi
+
+              if ! printf '%s' "${normalized_result}" | jq -e '
+                all(.[];
+                  ((.test_cases // 0) | type == "number") and
+                  ((.passed // 0) | type == "number") and
+                  ((.failed // 0) | type == "number") and
+                  ((.errors // 0) | type == "number")
+                )
+              ' >/dev/null 2>&1; then
+                echo "Endtest returned invalid result counts."
+                exit 1
+              fi
+
+              execution_index=0
+
+              while [ "${execution_index}" -lt "${completed_executions}" ]; do
+                execution="$(printf '%s' "${normalized_result}" | jq -c ".[$execution_index]")"
+                execution_number=$((execution_index + 1))
+                execution_hash="${execution_hashes[$execution_index]}"
+
+                test_suite_name="$(printf '%s' "${execution}" | jq -r '.test_suite_name // "Unknown"')"
+                configuration="$(printf '%s' "${execution}" | jq -r '.configuration // "Unknown"')"
+                test_cases="$(printf '%s' "${execution}" | jq -r '.test_cases // 0')"
+                passed="$(printf '%s' "${execution}" | jq -r '.passed // 0')"
+                failed="$(printf '%s' "${execution}" | jq -r '.failed // 0')"
+                errors="$(printf '%s' "${execution}" | jq -r '.errors // 0')"
+                start_time="$(printf '%s' "${execution}" | jq -r '.start_time // ""')"
+                end_time="$(printf '%s' "${execution}" | jq -r '.end_time // ""')"
+
+                results_url="https://app.endtest.io/results?hash=${execution_hash}"
+
+                echo ""
+                echo "Endtest execution ${execution_number}/${completed_executions}"
+                echo "Test Suite: ${test_suite_name}"
+                echo "Configuration: ${configuration}"
+                echo "Test Cases: ${test_cases}"
+                echo "Passed: ${passed}"
+                echo "Failed: ${failed}"
+                echo "Errors: ${errors}"
+                echo "Start Time: ${start_time}"
+                echo "End Time: ${end_time}"
+                echo "Results: ${results_url}"
+
+                execution_index=$((execution_index + 1))
+              done
+
+              total_test_cases="$(printf '%s' "${normalized_result}" | jq '[.[].test_cases // 0] | add // 0')"
+              total_passed="$(printf '%s' "${normalized_result}" | jq '[.[].passed // 0] | add // 0')"
+              total_failed="$(printf '%s' "${normalized_result}" | jq '[.[].failed // 0] | add // 0')"
+              total_errors="$(printf '%s' "${normalized_result}" | jq '[.[].errors // 0] | add // 0')"
+
+              echo ""
+              echo "Endtest summary"
+              echo "Executions: ${completed_executions}"
+              echo "Test Cases: ${total_test_cases}"
+              echo "Passed: ${total_passed}"
+              echo "Failed: ${total_failed}"
+              echo "Errors: ${total_errors}"
+
+              if [ "${total_failed}" -gt 0 ] || [ "${total_errors}" -gt 0 ]; then
                 echo "Endtest reported failed assertions or execution errors."
                 exit 1
               fi
 
-              echo "Endtest execution passed."
+              echo "All Endtest executions passed."
               exit 0
               ;;
           esac

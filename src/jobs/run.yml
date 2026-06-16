@@ -15,9 +15,14 @@ parameters:
     description: Environment variable containing the Endtest App Code.
 
   api_request:
+    type: string
+    default: ""
+    description: Visible Endtest API request without appId or appCode.
+
+  api_request_env_var:
     type: env_var_name
     default: ENDTEST_API_REQUEST
-    description: Environment variable containing the Endtest API request.
+    description: Legacy environment variable containing the complete Endtest API request.
 
   number_of_loops:
     type: integer
@@ -37,4 +42,5 @@ steps:
       app_id: << parameters.app_id >>
       app_code: << parameters.app_code >>
       api_request: << parameters.api_request >>
+      api_request_env_var: << parameters.api_request_env_var >>
       number_of_loops: << parameters.number_of_loops >>

@@ -1,10 +1,10 @@
-description: Run Endtest tests and fail the workflow when the execution fails.
+description: Run Endtest tests and fail the workflow when any execution fails.
 
 usage:
   version: 2.1
 
   orbs:
-    endtest: endtest/endtest@0.0.1
+    endtest: endtest/endtest@0.0.2
 
   workflows:
     endtest-tests:
@@ -12,5 +12,5 @@ usage:
         - endtest/run:
             app_id: ENDTEST_APP_ID
             app_code: ENDTEST_APP_CODE
-            api_request: ENDTEST_API_REQUEST
+            api_request: 'https://app.endtest.io/api.php?action=runWeb&label=Critical&platform=windows&os=windows11&browser=chrome&browserVersion=latest&resolution=1280x1024&geolocation=sanfrancisco&cases=all&notes='
             number_of_loops: 10

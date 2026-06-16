@@ -12,9 +12,14 @@ parameters:
     description: Environment variable containing the Endtest App Code.
 
   api_request:
+    type: string
+    default: ""
+    description: Visible Endtest API request without appId or appCode.
+
+  api_request_env_var:
     type: env_var_name
     default: ENDTEST_API_REQUEST
-    description: Environment variable containing the Endtest API request.
+    description: Legacy environment variable containing the complete Endtest API request.
 
   number_of_loops:
     type: integer
@@ -27,14 +32,21 @@ steps:
       environment:
         ENDTEST_APP_ID_ENV: << parameters.app_id >>
         ENDTEST_APP_CODE_ENV: << parameters.app_code >>
-        ENDTEST_API_REQUEST_ENV: << parameters.api_request >>
+        ENDTEST_API_REQUEST_VALUE: << parameters.api_request >>
+        ENDTEST_API_REQUEST_ENV: << parameters.api_request_env_var >>
         ENDTEST_NUMBER_OF_LOOPS: << parameters.number_of_loops >>
       command: |
         set -euo pipefail
 
         APP_ID="$(printenv "${ENDTEST_APP_ID_ENV}" || true)"
         APP_CODE="$(printenv "${ENDTEST_APP_CODE_ENV}" || true)"
-        API_REQUEST="$(printenv "${ENDTEST_API_REQUEST_ENV}" || true)"
+        API_REQUEST="${ENDTEST_API_REQUEST_VALUE}"
+        API_REQUEST_SOURCE="parameter"
+
+        if [ -z "${API_REQUEST}" ]; then
+          API_REQUEST="$(printenv "${ENDTEST_API_REQUEST_ENV}" || true)"
+          API_REQUEST_SOURCE="environment"
+        fi
 
         if [ -z "${APP_ID}" ]; then
           echo "Missing Endtest App ID. Set ${ENDTEST_APP_ID_ENV} in CircleCI."
@@ -47,8 +59,26 @@ steps:
         fi
 
         if [ -z "${API_REQUEST}" ]; then
-          echo "Missing Endtest API request. Set ${ENDTEST_API_REQUEST_ENV} in CircleCI."
+          echo "Missing Endtest API request."
+          echo "Set the api_request parameter or the ${ENDTEST_API_REQUEST_ENV} environment variable."
           exit 1
+        fi
+
+        case "${API_REQUEST}" in
+          "https://app.endtest.io/api.php"|"https://app.endtest.io/api.php?"*)
+            ;;
+          *)
+            echo "The Endtest API request must use https://app.endtest.io/api.php."
+            exit 1
+            ;;
+        esac
+
+        if [ "${API_REQUEST_SOURCE}" = "parameter" ]; then
+          if [[ "${API_REQUEST}" == *"appId="* ]] || [[ "${API_REQUEST}" == *"appCode="* ]]; then
+            echo "Do not include appId or appCode in the api_request parameter."
+            echo "Store them in ENDTEST_APP_ID and ENDTEST_APP_CODE."
+            exit 1
+          fi
         fi
 
         if ! command -v curl >/dev/null 2>&1; then
@@ -63,14 +93,24 @@ steps:
 
         echo "Starting Endtest execution..."
 
-        hashes="$(curl \
-          --fail \
-          --silent \
-          --show-error \
-          --location \
-          --header "Accept: */*" \
-          "${API_REQUEST}")"
+        curl_options=(
+          --fail
+          --silent
+          --show-error
+          --location
+          --get
+          --header "Accept: */*"
+        )
 
+        if [[ "${API_REQUEST}" != *"appId="* ]]; then
+          curl_options+=(--data-urlencode "appId=${APP_ID}")
+        fi
+
+        if [[ "${API_REQUEST}" != *"appCode="* ]]; then
+          curl_options+=(--data-urlencode "appCode=${APP_CODE}")
+        fi
+
+        hashes="$(curl "${curl_options[@]}" "${API_REQUEST}")"
         hashes="$(printf '%s' "${hashes}" | tr -d '[:space:]')"
 
         if [ -z "${hashes}" ]; then

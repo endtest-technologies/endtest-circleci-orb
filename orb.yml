@@ -3,8 +3,12 @@ commands:
         description: Run one or more Endtest test executions and wait for the results.
         parameters:
             api_request:
+                default: ""
+                description: Visible Endtest API request without appId or appCode.
+                type: string
+            api_request_env_var:
                 default: ENDTEST_API_REQUEST
-                description: Environment variable containing the Endtest API request.
+                description: Legacy environment variable containing the complete Endtest API request.
                 type: env_var_name
             app_code:
                 default: ENDTEST_APP_CODE
@@ -25,7 +29,13 @@ commands:
 
                     APP_ID="$(printenv "${ENDTEST_APP_ID_ENV}" || true)"
                     APP_CODE="$(printenv "${ENDTEST_APP_CODE_ENV}" || true)"
-                    API_REQUEST="$(printenv "${ENDTEST_API_REQUEST_ENV}" || true)"
+                    API_REQUEST="${ENDTEST_API_REQUEST_VALUE}"
+                    API_REQUEST_SOURCE="parameter"
+
+                    if [ -z "${API_REQUEST}" ]; then
+                      API_REQUEST="$(printenv "${ENDTEST_API_REQUEST_ENV}" || true)"
+                      API_REQUEST_SOURCE="environment"
+                    fi
 
                     if [ -z "${APP_ID}" ]; then
                       echo "Missing Endtest App ID. Set ${ENDTEST_APP_ID_ENV} in CircleCI."
@@ -38,8 +48,26 @@ commands:
                     fi
 
                     if [ -z "${API_REQUEST}" ]; then
-                      echo "Missing Endtest API request. Set ${ENDTEST_API_REQUEST_ENV} in CircleCI."
+                      echo "Missing Endtest API request."
+                      echo "Set the api_request parameter or the ${ENDTEST_API_REQUEST_ENV} environment variable."
                       exit 1
+                    fi
+
+                    case "${API_REQUEST}" in
+                      "https://app.endtest.io/api.php"|"https://app.endtest.io/api.php?"*)
+                        ;;
+                      *)
+                        echo "The Endtest API request must use https://app.endtest.io/api.php."
+                        exit 1
+                        ;;
+                    esac
+
+                    if [ "${API_REQUEST_SOURCE}" = "parameter" ]; then
+                      if [[ "${API_REQUEST}" == *"appId="* ]] || [[ "${API_REQUEST}" == *"appCode="* ]]; then
+                        echo "Do not include appId or appCode in the api_request parameter."
+                        echo "Store them in ENDTEST_APP_ID and ENDTEST_APP_CODE."
+                        exit 1
+                      fi
                     fi
 
                     if ! command -v curl >/dev/null 2>&1; then
@@ -54,14 +82,24 @@ commands:
 
                     echo "Starting Endtest execution..."
 
-                    hashes="$(curl \
-                      --fail \
-                      --silent \
-                      --show-error \
-                      --location \
-                      --header "Accept: */*" \
-                      "${API_REQUEST}")"
+                    curl_options=(
+                      --fail
+                      --silent
+                      --show-error
+                      --location
+                      --get
+                      --header "Accept: */*"
+                    )
 
+                    if [[ "${API_REQUEST}" != *"appId="* ]]; then
+                      curl_options+=(--data-urlencode "appId=${APP_ID}")
+                    fi
+
+                    if [[ "${API_REQUEST}" != *"appCode="* ]]; then
+                      curl_options+=(--data-urlencode "appCode=${APP_CODE}")
+                    fi
+
+                    hashes="$(curl "${curl_options[@]}" "${API_REQUEST}")"
                     hashes="$(printf '%s' "${hashes}" | tr -d '[:space:]')"
 
                     if [ -z "${hashes}" ]; then
@@ -244,7 +282,8 @@ commands:
                     echo "The Endtest execution did not finish within the configured polling period."
                     exit 1
                 environment:
-                    ENDTEST_API_REQUEST_ENV: << parameters.api_request >>
+                    ENDTEST_API_REQUEST_ENV: << parameters.api_request_env_var >>
+                    ENDTEST_API_REQUEST_VALUE: << parameters.api_request >>
                     ENDTEST_APP_CODE_ENV: << parameters.app_code >>
                     ENDTEST_APP_ID_ENV: << parameters.app_id >>
                     ENDTEST_NUMBER_OF_LOOPS: << parameters.number_of_loops >>
@@ -256,16 +295,16 @@ display:
     source_url: https://github.com/endtest-technologies/endtest-circleci-orb
 examples:
     run_tests:
-        description: Run Endtest tests and fail the workflow when the execution fails.
+        description: Run Endtest tests and fail the workflow when any execution fails.
         usage:
             orbs:
-                endtest: endtest/endtest@0.0.1
+                endtest: endtest/endtest@0.0.2
             version: 2.1
             workflows:
                 endtest-tests:
                     jobs:
                         - endtest/run:
-                            api_request: ENDTEST_API_REQUEST
+                            api_request: https://app.endtest.io/api.php?action=runWeb&label=Critical&platform=windows&os=windows11&browser=chrome&browserVersion=latest&resolution=1280x1024&geolocation=sanfrancisco&cases=all&notes=
                             app_code: ENDTEST_APP_CODE
                             app_id: ENDTEST_APP_ID
                             number_of_loops: 10
@@ -276,8 +315,12 @@ jobs:
             - image: cimg/base:stable
         parameters:
             api_request:
+                default: ""
+                description: Visible Endtest API request without appId or appCode.
+                type: string
+            api_request_env_var:
                 default: ENDTEST_API_REQUEST
-                description: Environment variable containing the Endtest API request.
+                description: Legacy environment variable containing the complete Endtest API request.
                 type: env_var_name
             app_code:
                 default: ENDTEST_APP_CODE
@@ -301,6 +344,7 @@ jobs:
                 name: Install Endtest dependencies
             - run-tests:
                 api_request: << parameters.api_request >>
+                api_request_env_var: << parameters.api_request_env_var >>
                 app_code: << parameters.app_code >>
                 app_id: << parameters.app_id >>
                 number_of_loops: << parameters.number_of_loops >>

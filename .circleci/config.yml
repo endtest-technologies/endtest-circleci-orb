@@ -1,7 +1,7 @@
 version: 2.1
 
 orbs:
-  endtest: endtest/endtest@dev:multi-tests-v3
+  endtest: endtest/endtest@dev:visible-request-v1
 
 workflows:
   test-endtest-orb:
@@ -9,5 +9,5 @@ workflows:
       - endtest/run:
           app_id: ENDTEST_APP_ID
           app_code: ENDTEST_APP_CODE
-          api_request: ENDTEST_API_REQUEST
+          api_request: 'https://app.endtest.io/api.php?action=runWeb&label=Critical&platform=windows&os=windows11&browser=chrome&browserVersion=latest&resolution=1280x1024&geolocation=sanfrancisco&cases=all&notes='
           number_of_loops: 10

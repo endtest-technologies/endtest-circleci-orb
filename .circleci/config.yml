@@ -1,7 +1,7 @@
 version: 2.1
 
 orbs:
-  endtest: endtest/endtest@dev:visible-request-v1
+  endtest: endtest/endtest@0.0.7
 
 workflows:
   test-endtest-orb:

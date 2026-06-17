@@ -1,186 +1,109 @@
 # Endtest CircleCI Orb
 
-The official CircleCI orb for running [Endtest](https://endtest.io) end-to-end tests from CircleCI pipelines.
+The official CircleCI orb for running [Endtest](https://endtest.io) web and mobile tests from CircleCI pipelines.
 
-Use this orb to trigger automated web or mobile tests in Endtest, wait for the execution to finish, display the results in CircleCI, and fail the pipeline when the test execution reports failures or errors.
+The orb can start one or more Endtest executions, wait for all results, display each result, and fail the CircleCI job when any execution reports failed assertions or errors.
 
 - [Endtest website](https://endtest.io)
 - [CircleCI Orb Registry](https://circleci.com/developer/orbs/orb/endtest/endtest)
 - [CircleCI integration documentation](https://endtest.io/docs/integrations/circleci)
 - [Endtest API documentation](https://endtest.io/docs/advanced/how-to-use-the-endtest-api)
 
-## What the orb does
+## Configure CircleCI
 
-The orb provides a reusable CircleCI job that:
-
-- starts an Endtest execution using a dynamically supplied Endtest API request
-- authenticates with each user's own Endtest `appId` and `appCode`
-- polls Endtest for the execution results
-- prints the test suite, configuration, test counts, timestamps, and results URL
-- passes the CircleCI job when the Endtest execution succeeds
-- fails the CircleCI job when Endtest reports failed assertions, execution errors, or a timeout
-
-The orb never contains or stores customer credentials. Each CircleCI project supplies its own Endtest credentials through environment variables.
-
-## Prerequisites
-
-You need:
-
-1. An [Endtest](https://endtest.io) account.
-2. Your Endtest `appId` and `appCode`, available from the Endtest settings page.
-3. An Endtest API request that starts the test execution you want to run.
-4. A CircleCI project connected to your repository.
-
-## Configure the environment variables
-
-In CircleCI, open:
-
-```text
-Project Settings → Environment Variables
-```
-
-Add these variables:
+In **Project Settings → Environment Variables**, add:
 
 ```text
 ENDTEST_APP_ID
 ENDTEST_APP_CODE
-ENDTEST_API_REQUEST
 ```
 
-Use your own Endtest values:
+Keep those credentials secret. Put the API request visibly in `.circleci/config.yml` without `appId` or `appCode`.
 
-- `ENDTEST_APP_ID`: your Endtest App ID
-- `ENDTEST_APP_CODE`: your Endtest App Code
-- `ENDTEST_API_REQUEST`: the complete Endtest API request used to start the execution
-
-Keeping these values in CircleCI environment variables prevents credentials from being committed to your repository.
-
-## Basic usage
-
-Add the orb to `.circleci/config.yml`:
+## Run one test suite
 
 ```yaml
 version: 2.1
 
 orbs:
-  endtest: endtest/endtest@0.0.1
+  endtest: endtest/endtest@0.0.7
 
 workflows:
   endtest-tests:
     jobs:
       - endtest/run:
-          app_id: ENDTEST_APP_ID
-          app_code: ENDTEST_APP_CODE
-          api_request: ENDTEST_API_REQUEST
+          api_request: 'https://app.endtest.io/api.php?action=runWeb&suite=YOUR_SUITE_ID&platform=windows&os=windows11&browser=chrome&browserVersion=latest&resolution=1280x1024&geolocation=sanfrancisco&cases=all&notes='
           number_of_loops: 10
 ```
 
-The orb checks the execution status once every 30 seconds. In this example, `number_of_loops: 10` allows the execution to run for approximately five minutes before the CircleCI job times out.
+The orb securely appends `appId` and `appCode` from the CircleCI environment variables.
 
-Always use the latest published version shown in the [CircleCI Orb Registry](https://circleci.com/developer/orbs/orb/endtest/endtest).
+## Run multiple test suites
 
-## Use custom environment-variable names
-
-The parameter values are environment-variable names, not the credentials themselves. You may use different names in your CircleCI project:
+Use an Endtest label:
 
 ```yaml
 version: 2.1
 
 orbs:
-  endtest: endtest/endtest@0.0.1
+  endtest: endtest/endtest@0.0.7
 
 workflows:
-  endtest-tests:
+  critical-tests:
     jobs:
       - endtest/run:
-          app_id: MY_ENDTEST_APP_ID
-          app_code: MY_ENDTEST_APP_CODE
-          api_request: MY_ENDTEST_API_REQUEST
-          number_of_loops: 20
+          api_request: 'https://app.endtest.io/api.php?action=runWeb&label=Critical&platform=windows&os=windows11&browser=chrome&browserVersion=latest&resolution=1280x1024&geolocation=sanfrancisco&cases=all&notes='
+          number_of_loops: 10
 ```
 
-In that case, add these variables in CircleCI:
+When Endtest returns multiple comma-separated execution hashes, the orb waits for all executions, prints individual and aggregate results, and fails if any execution fails.
 
-```text
-MY_ENDTEST_APP_ID
-MY_ENDTEST_APP_CODE
-MY_ENDTEST_API_REQUEST
+## Custom credential variable names
+
+```yaml
+- endtest/run:
+    app_id: MY_ENDTEST_APP_ID
+    app_code: MY_ENDTEST_APP_CODE
+    api_request: 'https://app.endtest.io/api.php?action=runWeb&label=Critical&platform=windows&os=windows11&browser=chrome&browserVersion=latest&resolution=1280x1024&geolocation=sanfrancisco&cases=all&notes='
+    number_of_loops: 10
 ```
+
+The values passed to `app_id` and `app_code` are environment-variable names, not credentials.
 
 ## Parameters
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `app_id` | Environment-variable name | `ENDTEST_APP_ID` | Variable containing the user's Endtest App ID. |
-| `app_code` | Environment-variable name | `ENDTEST_APP_CODE` | Variable containing the user's Endtest App Code. |
-| `api_request` | Environment-variable name | `ENDTEST_API_REQUEST` | Variable containing the Endtest API request that starts the execution. |
-| `number_of_loops` | Integer | `10` | Maximum number of result checks. Each check occurs after a 30-second wait. |
+| `app_id` | Environment-variable name | `ENDTEST_APP_ID` | Variable containing the Endtest App ID. |
+| `app_code` | Environment-variable name | `ENDTEST_APP_CODE` | Variable containing the Endtest App Code. |
+| `api_request` | String | Empty | Visible API request without `appId` or `appCode`. |
+| `api_request_env_var` | Environment-variable name | `ENDTEST_API_REQUEST` | Legacy fallback containing a complete API request. |
+| `number_of_loops` | Integer | `10` | Maximum result checks, one every 30 seconds. |
 
-Because the three environment-variable parameters have defaults, the shorter configuration below is also valid when you use the standard variable names:
-
-```yaml
-version: 2.1
-
-orbs:
-  endtest: endtest/endtest@0.0.1
-
-workflows:
-  endtest-tests:
-    jobs:
-      - endtest/run:
-          number_of_loops: 10
-```
+The visible `api_request` parameter takes priority over the legacy environment variable.
 
 ## Pipeline behavior
 
-The CircleCI job succeeds when the completed Endtest execution reports no failed assertions and no execution errors.
+The job succeeds only when every execution reports:
 
-The job fails when:
-
-- Endtest reports one or more failed assertions
-- Endtest reports one or more execution errors
-- the execution enters an error state
-- the API returns an invalid or unexpected response
-- the execution does not finish within the configured polling period
-
-This allows teams to use Endtest as a deployment gate in CircleCI workflows.
-
-## Development version
-
-During orb development, a development version can be referenced using a tag such as:
-
-```yaml
-orbs:
-  endtest: endtest/endtest@dev:api-v1
+```text
+Failed: 0
+Errors: 0
 ```
 
-Development versions are intended for testing. Production projects should use an immutable semantic version from the Orb Registry.
+The job fails when any execution fails, errors, returns an invalid response, or exceeds the configured polling period.
 
 ## Local development
-
-Pack and validate the orb source:
 
 ```bash
 circleci config pack src > orb.yml
 circleci orb validate orb.yml
-```
-
-Publish a development version:
-
-```bash
-circleci orb publish orb.yml endtest/endtest@dev:api-v1
-```
-
-After validating a passing execution and a failing execution, promote the development version:
-
-```bash
-circleci orb publish promote endtest/endtest@dev:api-v1 patch
+circleci orb publish orb.yml endtest/endtest@dev:your-version
+circleci orb publish promote endtest/endtest@dev:your-version patch
 ```
 
 ## Support
 
-For questions about Endtest or the CircleCI integration:
-
-- Read the [Endtest CircleCI integration guide](https://endtest.io/docs/integrations/circleci)
-- Read the [Endtest API guide](https://endtest.io/docs/advanced/how-to-use-the-endtest-api)
-- Visit [endtest.io](https://endtest.io)
+- [Endtest CircleCI integration guide](https://endtest.io/docs/integrations/circleci)
+- [Endtest API guide](https://endtest.io/docs/advanced/how-to-use-the-endtest-api)
+- [Endtest website](https://endtest.io)
